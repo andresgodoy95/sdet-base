@@ -1,0 +1,6 @@
+client_id,client_name,order_id,product_id,product_description,product_price,product_ccf,product_volume,point_of_sale_channel,status
+1001,Moe's Tavern,5678,102,Duff Classic,2.50,6,0.33,Retail,created
+1002,Kwik-E-Mart,5679,103,Duff Lite,2.00,12,0.5,B2B,delivered
+1003,Krusty Burger,5680,104,Duff Dry,3.00,8,0.25,Online,broken
+1004,Springfield Mall,5681,105,Duff Special,4.00,24,1.00,Retail,created
+1005,Moe's Tavern,5682,102,Duff Classic,2.50,6,0.33,B2B,delivered
