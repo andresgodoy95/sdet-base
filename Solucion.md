@@ -71,3 +71,9 @@ Puedes ejecutarla con los siguientes parametros:
 
   <img width="1763" height="709" alt="image" src="https://github.com/user-attachments/assets/80875dd9-2973-41d0-a934-45bef2845062" />
 
+
+Oportunidades de Mejora:
+Parametrizar el stack de despliegue para elegir los nombres de los buckets de entrada y salida, ademas de parametrizar el nombre de la base y tablas.
+Considerar guardar schemas en dynamoDB en caso de tener schemas que cambien en el tiempo. Otra solucion es agregar una columna "vigente".
+-Agregar una herramienta de visualizacion como Quicksight para mostrar los reportes como front-end en vez de la respuesta con formato plano.
+
