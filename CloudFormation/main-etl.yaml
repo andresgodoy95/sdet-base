@@ -1,0 +1,468 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for Duff Order ETL Flow with Lambda, Step
+  Functions, and API Gateway.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Name of the deployment environment (e.g., dev, prod)
+    Default: prod
+  ArtifactS3Bucket:
+    Type: String
+    Description: S3 Bucket where Lambda code ZIPs and Glue scripts are stored.
+    Default: aws-project-artifacts-interview # Your existing bucket for artifacts
+  RawDataS3Bucket:
+    Type: String
+    Description: S3 Bucket for raw Duff orders data.
+    Default: duff-orders-raw
+  ProcessedDataS3Bucket:
+    Type: String
+    Description: S3 Bucket for processed Duff orders data and Athena query results.
+    Default: duff-orders-processed
+
+Resources:
+  # IAM Roles
+  DuffEtlGlueJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub DuffEtlGlueJobRole-${EnvironmentName}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GlueJobS3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${RawDataS3Bucket}
+                  - !Sub arn:aws:s3:::${RawDataS3Bucket}/*
+                  - !Sub arn:aws:s3:::${ProcessedDataS3Bucket}
+                  - !Sub arn:aws:s3:::${ProcessedDataS3Bucket}/*
+              - Effect: Allow
+                Action:
+                  - glue:CreateTable
+                  - glue:GetTable
+                  - glue:GetTables
+                  - glue:GetDatabase
+                  - glue:GetDatabases
+                  - glue:BatchCreatePartition
+                  - glue:UpdateTable
+                  - glue:UpdateDatabase
+                Resource: '*'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+
+  DuffEtlLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub DuffEtlLambdaExecutionRole-${EnvironmentName}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LambdaS3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub arn:aws:s3:::${ArtifactS3Bucket}/*
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${RawDataS3Bucket}
+                  - !Sub arn:aws:s3:::${RawDataS3Bucket}/*
+                  - !Sub arn:aws:s3:::${ProcessedDataS3Bucket}
+                  - !Sub arn:aws:s3:::${ProcessedDataS3Bucket}/*
+        - PolicyName: LambdaAthenaAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - athena:StartQueryExecution
+                  - athena:GetQueryExecution
+                  - athena:GetQueryResults
+                  - athena:StopQueryExecution
+                  - glue:GetTable
+                  - glue:GetTables
+                  - glue:GetDatabase
+                  - glue:GetDatabases
+                  - glue:GetPartition
+                  - glue:GetPartitions
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - !Sub arn:aws:s3:::${ProcessedDataS3Bucket}/athena_results/
+                  - !Sub arn:aws:s3:::${ProcessedDataS3Bucket}/athena_results/*
+        - PolicyName: LambdaGlueInvokePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:StartJobRun
+                  - glue:GetJobRun
+                Resource: !Sub arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/duff_transform_glue_job
+
+  DuffEtlStepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub DuffEtlStepFunctionsExecutionRole-${EnvironmentName}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionsLambdaInvokePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt ValidateCsvLambda.Arn
+                  - !GetAtt TransformDataLambda.Arn
+                  - !GetAtt QueryAthenaLambda.Arn
+                  - !GetAtt TriggerGlueJobLambda.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/stepfunctions/*:*
+
+  # AWS Glue Resources
+  DuffOrdersDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: db_duff_orders
+        Description: Duff Orders database for unified ETL
+
+  DuffOrdersTable:
+    Type: AWS::Glue::Table
+    DependsOn: DuffOrdersDatabase
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref DuffOrdersDatabase
+      TableInput:
+        Name: tbl_duff_orders
+        Description: Unified Duff Orders table for Athena and ETL access
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          classification: parquet
+          has_encrypted_data: false
+        StorageDescriptor:
+          Columns:
+            - Name: order_id
+              Type: int
+            - Name: client_id
+              Type: int
+            - Name: client_name
+              Type: string
+            - Name: point_of_sale_channel
+              Type: string
+            - Name: product_id
+              Type: int
+            - Name: product_description
+              Type: string
+            - Name: status
+              Type: string
+            - Name: product_price
+              Type: double
+            - Name: product_ccf
+              Type: double
+            - Name: product_volume
+              Type: double
+            - Name: total_price
+              Type: double
+          Location: !Sub s3://${ProcessedDataS3Bucket}/tbl_Duff_prod/
+          InputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+            Parameters:
+              serialization.format: '1'
+          StoredAsSubDirectories: false
+        PartitionKeys:
+          - Name: pa_date
+            Type: string
+
+  DuffTransformGlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: duff_transform_glue_job
+      Role: !GetAtt DuffEtlGlueJobRole.Arn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub s3://${ArtifactS3Bucket}/glue_transform_script.py
+        PythonVersion: 3
+      DefaultArguments:
+        '--job-language': python
+        '--TempDir': !Sub s3://${ProcessedDataS3Bucket}/glue_temp/
+      MaxRetries: 0
+      Timeout: 10
+      GlueVersion: 3.0
+      NumberOfWorkers: 2
+      WorkerType: G.1X
+
+  DuffCrawler:
+    Type: AWS::Glue::Crawler
+    DependsOn: DuffOrdersDatabase
+    Properties:
+      Name: DuffOrdersCrawler
+      Role: !GetAtt DuffEtlGlueJobRole.Arn
+      DatabaseName: !Ref DuffOrdersDatabase
+      Targets:
+        S3Targets:
+          - Path: !Sub s3://${ProcessedDataS3Bucket}/tbl_Duff_prod/
+      Schedule:
+        ScheduleExpression: cron(0 2 * * ? *)
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+
+  # AWS Lambda Functions
+  ValidateCsvLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub duff-validate-csv-${EnvironmentName}
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt DuffEtlLambdaExecutionRole.Arn
+      Runtime: python3.10
+      Code:
+        S3Bucket: !Ref ArtifactS3Bucket
+        S3Key: validate_csv.zip
+      Timeout: 30
+      Environment:
+        Variables:
+          RAW_DATA_BUCKET: !Ref RawDataS3Bucket
+          PROCESSED_DATA_BUCKET: !Ref ProcessedDataS3Bucket
+
+  TransformDataLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub duff-transform-data-${EnvironmentName}
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt DuffEtlLambdaExecutionRole.Arn
+      Runtime: python3.10
+      Code:
+        S3Bucket: !Ref ArtifactS3Bucket
+        S3Key: transform_data.zip
+      Timeout: 30
+      Layers:
+        - !Sub arn:aws:lambda:${AWS::Region}:336392948345:layer:AWSSDKPandas-Python310:25
+      Environment:
+        Variables:
+          RAW_DATA_BUCKET: !Ref RawDataS3Bucket
+          PROCESSED_DATA_BUCKET: !Ref ProcessedDataS3Bucket
+
+  QueryAthenaLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub duff-query-athena-${EnvironmentName}
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt DuffEtlLambdaExecutionRole.Arn
+      Runtime: python3.10
+      Code:
+        S3Bucket: !Ref ArtifactS3Bucket
+        S3Key: query_athena.zip
+      Timeout: 60
+      Environment:
+        Variables:
+          PROCESSED_DATA_BUCKET: !Ref ProcessedDataS3Bucket
+
+  TriggerGlueJobLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub duff-trigger-glue-job-${EnvironmentName}
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt DuffEtlLambdaExecutionRole.Arn
+      Runtime: python3.10
+      Code:
+        S3Bucket: !Ref ArtifactS3Bucket
+        S3Key: trigger_glue_job.zip
+      Timeout: 30
+      Environment:
+        Variables:
+          GLUE_JOB_NAME: duff_transform_glue_job
+
+  # AWS Step Functions
+  ProcessOrdersStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub DuffOrderETLFlow-${EnvironmentName}
+      RoleArn: !GetAtt DuffEtlStepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Duff Order ETL Flow with CSV validation, transformation, and Athena query.",
+          "StartAt": "ValidateCSV",
+          "States": {
+            "ValidateCSV": {
+              "Type": "Task",
+              "Resource": "${ValidateCsvLambda.Arn}",
+              "Next": "CheckSize"
+            },
+            "CheckSize": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.valid",
+                  "BooleanEquals": false,
+                  "Next": "FailState"
+                },
+                {
+                  "Variable": "$.is_large",
+                  "BooleanEquals": true,
+                  "Next": "TriggerGlueJob"
+                }
+              ],
+              "Default": "TransformData"
+            },
+            "TransformData": {
+              "Type": "Task",
+              "Resource": "${TransformDataLambda.Arn}",
+              "Next": "QueryAthena"
+            },
+            "TriggerGlueJob": {
+              "Type": "Task",
+              "Resource": "${TriggerGlueJobLambda.Arn}",
+              "Next": "QueryAthena"
+            },
+            "QueryAthena": {
+              "Type": "Task",
+              "Resource": "${QueryAthenaLambda.Arn}",
+              "End": true
+            },
+            "FailState": {
+              "Type": "Fail",
+              "Error": "ValidationFailed",
+              "Cause": "CSV failed validation"
+            }
+          }
+        }
+
+  # API Gateway
+  DuffAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub DuffOrdersAPI-${EnvironmentName}
+      Description: API for managing Duff Orders and retrieving status.
+
+  DuffClientOrdersResource:
+    Type: AWS::ApiGateway::Resource
+    DependsOn: DuffAPI
+    Properties:
+      ParentId: !GetAtt DuffAPI.RootResourceId
+      PathPart: client-orders
+      RestApiId: !Ref DuffAPI
+
+  DuffStatusSummaryResource:
+    Type: AWS::ApiGateway::Resource
+    DependsOn: DuffAPI
+    Properties:
+      ParentId: !GetAtt DuffAPI.RootResourceId
+      PathPart: status-summary
+      RestApiId: !Ref DuffAPI
+
+  DuffClientOrdersMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: QueryAthenaLambda
+    Properties:
+      HttpMethod: GET
+      AuthorizationType: NONE
+      ResourceId: !Ref DuffClientOrdersResource
+      RestApiId: !Ref DuffAPI
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${QueryAthenaLambda.Arn}/invocations
+
+  DuffStatusSummaryMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: QueryAthenaLambda
+    Properties:
+      HttpMethod: GET
+      AuthorizationType: NONE
+      ResourceId: !Ref DuffStatusSummaryResource
+      RestApiId: !Ref DuffAPI
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${QueryAthenaLambda.Arn}/invocations
+
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - DuffClientOrdersMethod
+      - DuffStatusSummaryMethod
+    Properties:
+      RestApiId: !Ref DuffAPI
+      Description: Initial deployment of the Duff Orders API
+
+  ApiGatewayStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      StageName: prod
+      Description: Production stage for Duff Orders API
+      RestApiId: !Ref DuffAPI
+      DeploymentId: !Ref ApiGatewayDeployment
+
+  # Permissions for API Gateway to invoke Lambda
+  DuffClientOrdersMethodPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn: ApiGatewayStage
+    Properties:
+      FunctionName: !GetAtt QueryAthenaLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DuffAPI}/*/GET/client-orders # FIXED THIS LINE
+
+  DuffStatusSummaryMethodPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn: ApiGatewayStage
+    Properties:
+      FunctionName: !GetAtt QueryAthenaLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DuffAPI}/*/GET/status-summary # FIXED THIS LINE
+
+Outputs:
+  DuffOrdersApiUrl:
+    Description: URL of the deployed API Gateway
+    Value: !Sub https://${DuffAPI}.execute-api.${AWS::Region}.amazonaws.com/*
+  DuffEtlStepFunctionsStateMachineArn:
+    Description: ARN of the Step Functions State Machine
+    Value: !Ref ProcessOrdersStateMachine

@@ -1,0 +1,11 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  RawOrdersBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: duff-orders-raw
+
+  ProcessedOrdersBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: duff-orders-processed
