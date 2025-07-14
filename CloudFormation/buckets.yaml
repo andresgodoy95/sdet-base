@@ -9,3 +9,8 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: duff-orders-processed
+
+  UtilsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: aws-project-artifacts-interview
