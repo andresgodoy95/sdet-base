@@ -10,7 +10,7 @@ Parameters:
   ArtifactS3Bucket:
     Type: String
     Description: S3 Bucket where Lambda code ZIPs and Glue scripts are stored.
-    Default: aws-project-artifacts-interview # Your existing bucket for artifacts
+    Default: aws-project-artifacts-interview 
   RawDataS3Bucket:
     Type: String
     Description: S3 Bucket for raw Duff orders data.
@@ -448,7 +448,7 @@ Resources:
       FunctionName: !GetAtt QueryAthenaLambda.Arn
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DuffAPI}/*/GET/client-orders # FIXED THIS LINE
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DuffAPI}/*/GET/client-orders 
 
   DuffStatusSummaryMethodPermission:
     Type: AWS::Lambda::Permission
@@ -457,7 +457,7 @@ Resources:
       FunctionName: !GetAtt QueryAthenaLambda.Arn
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DuffAPI}/*/GET/status-summary # FIXED THIS LINE
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${DuffAPI}/*/GET/status-summary 
 
 Outputs:
   DuffOrdersApiUrl:
