@@ -36,6 +36,8 @@ Se define la base de datos db_duff_orders y la tabla tbl_duff_orders que contend
 API Gateway:
 Este servicio establece el punto de acceso API que se conecta con la función Lambda Query_Athena.
 
+s3 Trigger: Para ejecutar la stepfunction cada vez que llega un nuevo archivo, hay que ir a propiedades del bucket y habilitar las notificaciones de CloudWatch, luego crear una regla con nuestro buckey y la aplicacion de destino sería nuestra Step Function. Asegurarse de que el rol IAM de la stepfunction tenga permisos sobre el bucket.
+
 3.- Data Modeling
 Fase final del pipeline, se enfoca en transformar los datos ya procesados en nuestra tabla y darle estructura de estrella con una tabla de hechos y 4 dimensiones.
 En este ultimo paso se crea un Glue job llamado duff_data_models.py que crea las tablas dimensionas y la tabla hecho definidas en en el siguiente diagrama:
