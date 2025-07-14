@@ -13,7 +13,7 @@ Disclaimer: Los nombres de los buckets son únicos a nivel global por lo que ten
 
 Fase 2: Procesamiento ETL
 Esta fase abarca la lógica principal de procesamiento y transformación de datos, y se despliega mediante el archivo main-etl.yaml.
-Antes de desplegar el .yaml, cargar los jobs y lambda scripts al bucket, sin carpeta solo los script.
+Antes de desplegar el .yaml, cargar los jobs y lambda scripts al bucket aws-project-artifacts-interview, sin carpeta solo los script.
 Componentes:
 * Validate_csv: Funcion Lambda que valida el tamaño del archivo, esto nos es util debido a que usaremos distintas estrategias de procesamiento si el archivo es menor o mayor a 100mb (Lambda para archivos pequeños, glue para archivos grandes).
 Transform-data: Funcion que realiza campos calculados sobre la tabla inicial, como por ejemplo precio total. Elimina duplicados y chequea errores por archivo valido o no valido dependiendo si tiene columnas o filas nulas. Ademas,le asigna el schema definidio en el data catalog y guarda el archivo en formato parquet y particionado para mejor performance a la hora de consultar la data.
