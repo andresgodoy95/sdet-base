@@ -73,7 +73,7 @@ Puedes ejecutarla en postman con los siguientes parametros:
 
 
 Oportunidades de Mejora:
-Parametrizar el stack de despliegue para elegir los nombres de los buckets de entrada y salida, ademas de parametrizar el nombre de la base y tablas.
-Considerar guardar schemas en dynamoDB en caso de tener schemas que cambien en el tiempo. Otra solucion es agregar una columna "vigente".
--Agregar una herramienta de visualizacion como Quicksight para mostrar los reportes como front-end en vez de la respuesta con formato plano.
+* Parametrizar el stack de despliegue para elegir los nombres de los buckets de entrada y salida, ademas de parametrizar el nombre de la base y tablas.
+* Considerar guardar schemas en dynamoDB en caso de tener schemas que cambien en el tiempo. Otra solucion es agregar una columna "vigente".
+* Agregar una herramienta de visualizacion como Quicksight para mostrar los reportes como front-end en vez de la respuesta con formato plano.
 
