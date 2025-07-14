@@ -60,7 +60,7 @@ fact_orders: Es el centro de nuestro modelo analítico. Contiene las métricas c
 Finalmente, los campos destacados en amarillo son posibles campos para agregar en el futuro para tener mas información.
 
 La API Gateway se encuentra funcionando en el siguiente enlace: https://l69xgm3e8j.execute-api.us-east-1.amazonaws.com/prod/client-orders?
-Puedes ejecutarla con los siguientes parametros:
+Puedes ejecutarla en postman con los siguientes parametros:
 - Revisar las ordenes:
   {"resource":"client_orders"}
 - Revisar status
